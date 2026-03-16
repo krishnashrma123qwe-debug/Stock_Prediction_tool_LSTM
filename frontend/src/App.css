@@ -1,0 +1,59 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; }
+
+/* Auth Pages */
+.auth-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.auth-card { background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; padding: 2.5rem; width: 100%; max-width: 400px; }
+.auth-card h2 { font-size: 1.8rem; margin-bottom: 0.4rem; color: #fff; }
+.auth-sub { color: #888; margin-bottom: 1.8rem; font-size: 0.9rem; }
+.auth-card form { display: flex; flex-direction: column; gap: 1rem; }
+.auth-card input { padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #2a2d3e; background: #0f1117; color: #fff; font-size: 1rem; outline: none; }
+.auth-card input:focus { border-color: #4f8ef7; }
+.auth-card button { padding: 0.85rem; background: #4f8ef7; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 0.5rem; }
+.auth-card button:hover { background: #3a7de0; }
+.auth-card button:disabled { opacity: 0.6; cursor: not-allowed; }
+.auth-link { margin-top: 1.2rem; text-align: center; color: #888; font-size: 0.9rem; }
+.auth-link a { color: #4f8ef7; text-decoration: none; }
+.error-msg { background: #2d1a1a; border: 1px solid #e24b4a; color: #e24b4a; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; }
+
+/* Navbar */
+.navbar { display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; background: #1a1d27; border-bottom: 1px solid #2a2d3e; }
+.logo { font-size: 1.2rem; font-weight: 700; color: #4f8ef7; }
+.nav-right { display: flex; align-items: center; gap: 1rem; }
+.nav-right span { color: #aaa; font-size: 0.95rem; }
+.nav-right button { padding: 0.4rem 1rem; background: transparent; border: 1px solid #e24b4a; color: #e24b4a; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+.nav-right button:hover { background: #2d1a1a; }
+
+/* Dashboard */
+.dashboard { min-height: 100vh; background: #0f1117; }
+.dashboard-body { padding: 2.5rem 2rem; text-align: center; }
+.dashboard-body h1 { font-size: 2rem; margin-bottom: 0.5rem; color: #fff; }
+
+/* Search Bar */
+.search-bar { display: flex; gap: 1rem; justify-content: center; margin-bottom: 2rem; }
+.search-bar input { padding: 0.75rem 1.25rem; background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 8px; color: #fff; font-size: 1rem; width: 260px; outline: none; }
+.search-bar input:focus { border-color: #4f8ef7; }
+.search-bar button { padding: 0.75rem 1.5rem; background: #4f8ef7; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+.search-bar button:hover { background: #3a7de0; }
+.search-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Results */
+.results { max-width: 900px; margin: 0 auto; }
+
+/* Metric Cards */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 2rem; }
+.metric { background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 10px; padding: 1rem; text-align: center; }
+.mlabel { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.mval { font-size: 1.4rem; font-weight: 700; color: #fff; font-family: 'Courier New', monospace; }
+
+/* Chart */
+.chart-container { background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+
+/* Prediction Table */
+.pred-table { background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+.pred-table h3 { margin-bottom: 1rem; font-size: 1rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+.pred-rows { display: flex; flex-direction: column; gap: 8px; }
+.pred-row { display: flex; justify-content: space-between; padding: 8px 12px; background: #0f1117; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.9rem; color: #ddd; }
+
+/* Loading */
+.loading { display: flex; justify-content: center; align-items: center; height: 100vh; color: #888; font-size: 1.2rem; }
