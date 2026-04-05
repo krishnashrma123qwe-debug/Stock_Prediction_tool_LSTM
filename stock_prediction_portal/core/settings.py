@@ -102,3 +102,5 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+FINNHUB_API_KEY= 'd6vsk0hr01qiiutd06l0d6vsk0hr01qiiutd06lg'
