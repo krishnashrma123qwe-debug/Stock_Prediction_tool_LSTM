@@ -1,0 +1,21 @@
+# 🔹 Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 🔹 ML / Models
+*.pkl
+*.keras
+*.h5
+
+# 🔹 Node / React
+node_modules/
+dist/
+build/
+
+# 🔹 Environment files
+.env
+
+# 🔹 OS files
+.DS_Store
+Thumbs.db
