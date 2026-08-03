@@ -2,6 +2,7 @@
 Backtesting Engine — Multi-Feature LSTM version
 ================================================
 Updated to use 8-feature input matching the retrained model.
+Includes volatility-adjusted thresholds and cooldown periods.
 """
 
 import numpy as np
@@ -16,9 +17,11 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WINDOW   = 60
 
-BUY_THRESHOLD  =  2.0
-SELL_THRESHOLD = -2.0
+# Base thresholds — will be scaled by each stock's volatility
+BASE_BUY_THRESHOLD  =  2.0
+BASE_SELL_THRESHOLD = -2.0
 TRANSACTION_COST = 0.001
+COOLDOWN_DAYS = 5  # Days to wait after SELL before allowing next BUY
 
 
 # ── Load scalers and features ─────────────────────────────────────────────────
@@ -82,12 +85,30 @@ def scale_features(feat_df, scalers, features):
     return np.column_stack(scaled_cols)  # (n_days, 8)
 
 
-def get_signal(expected_return):
-    if expected_return > BUY_THRESHOLD:
+def get_signal(expected_return, buy_threshold=2.0, sell_threshold=-2.0):
+    if expected_return > buy_threshold:
         return 'BUY'
-    elif expected_return < SELL_THRESHOLD:
+    elif expected_return < sell_threshold:
         return 'SELL'
     return 'HOLD'
+
+
+def compute_volatility_thresholds(close_prices):
+    """Compute adaptive BUY/SELL thresholds based on stock volatility.
+    Uses 20-day rolling standard deviation of daily returns.
+    Volatile stocks get wider thresholds, stable stocks keep narrow ones."""
+    returns = pd.Series(close_prices).pct_change().dropna()
+    if len(returns) < 20:
+        return BASE_BUY_THRESHOLD, BASE_SELL_THRESHOLD
+
+    daily_vol = returns.rolling(20).std().iloc[-1] * 100  # % daily volatility
+    # Scale factor: 1.0 for average stocks (~1.5% daily vol), higher for volatile
+    scale = max(1.0, daily_vol / 1.5)
+    buy_t  = round(BASE_BUY_THRESHOLD * scale, 2)
+    sell_t = round(BASE_SELL_THRESHOLD * scale, 2)
+    logger.info(f"Volatility thresholds: daily_vol={daily_vol:.2f}%, "
+                f"scale={scale:.2f}, BUY>{buy_t}%, SELL<{sell_t}%")
+    return buy_t, sell_t
 
 
 # ── Main backtest function ────────────────────────────────────────────────────
@@ -124,6 +145,9 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
     open_prices  = feat_df['Open'].values
     dates        = feat_df.index
 
+    # 4b. Compute volatility-adjusted thresholds for this stock
+    buy_threshold, sell_threshold = compute_volatility_thresholds(close_prices)
+
     # 5. Generate signals for each day
     signals     = []
     exp_returns = []
@@ -148,7 +172,7 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
             )
             current_price = float(close_prices[i])
             exp_return    = (next_price - current_price) / current_price * 100
-            signal        = get_signal(exp_return)
+            signal        = get_signal(exp_return, buy_threshold, sell_threshold)
 
         except Exception:
             signal     = 'HOLD'
@@ -162,10 +186,11 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
     trade_closes = close_prices[WINDOW: len(feat_df) - 7]
     trade_opens  = open_prices[WINDOW: len(feat_df) - 7]
 
-    capital     = initial_capital
-    shares_held = 0.0
-    in_position = False
-    buy_price   = 0.0
+    capital        = initial_capital
+    shares_held    = 0.0
+    in_position    = False
+    buy_price      = 0.0
+    cooldown_until = -1  # Index until which BUY is blocked
 
     portfolio_values = []
     trade_log        = []
@@ -175,7 +200,7 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
     ):
         date_str = str(date.date()) if hasattr(date, 'date') else str(date)[:10]
 
-        if sig == 'BUY' and not in_position:
+        if sig == 'BUY' and not in_position and i >= cooldown_until:
             cost        = capital * (1 - TRANSACTION_COST)
             shares_held = cost / op
             buy_price   = op
@@ -196,6 +221,7 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
             capital     = proceeds
             shares_held = 0.0
             in_position = False
+            cooldown_until = i + COOLDOWN_DAYS  # Block BUY for next 5 days
             trade_log.append({
                 'date': date_str, 'action': 'SELL',
                 'price': round(float(op), 2), 'shares': 0,
@@ -223,8 +249,10 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
             'value': round(capital, 2), 'exp_return': 0,
             'pnl': round(pnl, 2), 'pnl_pct': round(pnl_pct, 2),
         })
+        shares_held = 0.0
+        in_position = False
 
-    final_capital = capital if not in_position else capital + shares_held * float(trade_closes[-1])
+    final_capital = capital
 
     # 7. Metrics
     total_return_pct = (final_capital - initial_capital) / initial_capital * 100
@@ -252,8 +280,14 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
     else:
         sharpe = 0.0
 
+    # Only show best/worst trade if there are actual winning/losing trades
     best_trade  = max(sell_trades, key=lambda t: t['pnl_pct']) if sell_trades else None
     worst_trade = min(sell_trades, key=lambda t: t['pnl_pct']) if sell_trades else None
+    # If "best" trade is actually a loss, mark it clearly
+    if best_trade and best_trade['pnl_pct'] < 0:
+        best_trade = {**best_trade, 'all_losses': True}
+    if worst_trade and worst_trade['pnl_pct'] > 0:
+        worst_trade = {**worst_trade, 'all_wins': True}
 
     buy_signals  = signals.count('BUY')
     sell_signals = signals.count('SELL')
@@ -282,6 +316,10 @@ def run_backtest(ticker: str, model, initial_capital: float = 100000.0,
             'buy':  buy_signals,
             'sell': sell_signals,
             'hold': hold_signals,
+        },
+        'thresholds': {
+            'buy': buy_threshold,
+            'sell': sell_threshold,
         },
         'error': None,
     }

@@ -14,6 +14,8 @@ import logging
 from .models import Watchlist, PredictionHistory
 from .serializers import WatchlistSerializer, PredictionHistorySerializer
 from .sentiment import get_news_sentiment
+from .tasks import predict_stock_task
+from celery.result import AsyncResult
 
 logger = logging.getLogger(__name__)
 
@@ -179,171 +181,35 @@ class PredictStockView(APIView):
         if not ticker.replace('.', '').isalpha() or len(ticker) > 20:
             return Response({'error': 'Invalid ticker symbol.'}, status=400)
 
-        try:
-            model    = get_model()
-            scalers  = get_scalers()
-            features = get_features()
-        except RuntimeError as e:
-            return Response({'error': str(e)}, status=503)
+        # Trigger the asynchronous task
+        task = predict_stock_task.delay(ticker, request.user.id)
+        
+        return Response({
+            'task_id': task.id,
+            'status': 'PENDING',
+            'message': f'Prediction task for {ticker} started.'
+        })
 
-        try:
-            # 1. Fetch 6 months OHLCV data
-            df = yf.download(ticker, period='6mo', interval='1d', progress=False)
-            if df.empty:
-                return Response({'error': f'No data found for "{ticker}".'}, status=404)
 
-            # 2. Build 8-feature matrix
-            feat_df = build_feature_matrix(df)
-            if len(feat_df) < WINDOW:
-                return Response({'error': f'Need at least {WINDOW} trading days.'}, status=400)
+class TaskStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
 
-            # 3. Scale all 8 features
-            scaled   = scale_features(feat_df, scalers, features)  # (n_days, 8)
-            sequence = scaled[-WINDOW:].reshape(1, WINDOW, len(features))
+    def get(self, request, task_id):
+        result = AsyncResult(task_id)
+        response_data = {
+            'task_id': task_id,
+            'status': result.status,
+        }
 
-            # 4. Monte Carlo Dropout — 20 runs
-            try:
-                predictions_scaled = []
-                for _ in range(20):
-                    preds_run   = []
-                    current_seq = sequence.copy()
-                    for _ in range(7):
-                        pred              = model(current_seq, training=True).numpy()
-                        next_close_scaled = float(pred[0][0])
-                        preds_run.append(next_close_scaled)
-                        # Slide window — update Close (index 0), keep other features
-                        new_step    = current_seq[0, -1, :].copy()
-                        new_step[0] = next_close_scaled
-                        current_seq = np.append(
-                            current_seq[:, 1:, :],
-                            new_step.reshape(1, 1, len(features)),
-                            axis=1
-                        )
-                    predictions_scaled.append(preds_run)
+        if result.status == 'SUCCESS':
+            response_data['result'] = result.result
+            if isinstance(result.result, dict) and 'error' in result.result:
+                return Response(result.result, status=400)
+        elif result.status == 'FAILURE':
+            response_data['error'] = str(result.info)
+            return Response(response_data, status=500)
 
-                predictions_scaled = np.array(predictions_scaled)  # (20, 7)
-                close_scaler       = scalers['Close']
-
-                predicted_prices = close_scaler.inverse_transform(
-                    np.mean(predictions_scaled, axis=0).reshape(-1, 1)
-                ).flatten().tolist()
-
-                confidence_upper = close_scaler.inverse_transform(
-                    np.percentile(predictions_scaled, 95, axis=0).reshape(-1, 1)
-                ).flatten().tolist()
-
-                confidence_lower = close_scaler.inverse_transform(
-                    np.percentile(predictions_scaled, 5, axis=0).reshape(-1, 1)
-                ).flatten().tolist()
-
-            except Exception as mc_err:
-                logger.warning(f"MC fallback for {ticker}: {mc_err}")
-                current_seq  = sequence.copy()
-                preds_scaled = []
-                for _ in range(7):
-                    pred              = model.predict(current_seq, verbose=0)
-                    next_close_scaled = float(pred[0][0])
-                    preds_scaled.append(next_close_scaled)
-                    new_step          = current_seq[0, -1, :].copy()
-                    new_step[0]       = next_close_scaled
-                    current_seq       = np.append(
-                        current_seq[:, 1:, :],
-                        new_step.reshape(1, 1, len(features)),
-                        axis=1
-                    )
-                close_scaler     = scalers['Close']
-                predicted_prices = close_scaler.inverse_transform(
-                    np.array(preds_scaled).reshape(-1, 1)
-                ).flatten().tolist()
-                confidence_upper = [p * 1.02 for p in predicted_prices]
-                confidence_lower = [p * 0.98 for p in predicted_prices]
-
-            # 5. Historical close prices
-            historical_prices = scalers['Close'].inverse_transform(
-                scaled[-WINDOW:, 0].reshape(-1, 1)
-            ).flatten().tolist()
-
-            current_price   = float(feat_df['Close'].iloc[-1])
-            pred_high       = round(max(predicted_prices), 2)
-            pred_low        = round(min(predicted_prices), 2)
-            expected_return = round(
-                (predicted_prices[-1] - current_price) / current_price * 100, 2
-            )
-            signal = 'BUY' if expected_return > 2 else ('SELL' if expected_return < -2 else 'HOLD')
-
-            predicted_prices_r  = [round(p, 2) for p in predicted_prices]
-            historical_prices_r = [round(p, 2) for p in historical_prices]
-            conf_upper_r        = [round(p, 2) for p in confidence_upper]
-            conf_lower_r        = [round(p, 2) for p in confidence_lower]
-
-            # 6. Technical indicators
-            try:
-                indicators = compute_indicators(df)
-            except Exception as e:
-                logger.warning(f"Indicators failed: {e}")
-                indicators = None
-
-            # 7. News sentiment
-            try:
-                sentiment = get_news_sentiment(ticker)
-            except Exception as e:
-                logger.warning(f"Sentiment failed: {e}")
-                sentiment = None
-
-            # 8. Combined signal
-            combined_signal = signal
-            sigs = [signal]
-            if indicators:
-                if indicators['rsi']['signal']  == 'OVERSOLD':   sigs.append('BUY')
-                if indicators['rsi']['signal']  == 'OVERBOUGHT': sigs.append('SELL')
-                if indicators['macd']['signal'] == 'BULLISH':    sigs.append('BUY')
-                if indicators['macd']['signal'] == 'BEARISH':    sigs.append('SELL')
-            if sentiment and not sentiment.get('error'):
-                if sentiment['label'] == 'BULLISH': sigs.append('BUY')
-                if sentiment['label'] == 'BEARISH': sigs.append('SELL')
-
-            buy_c  = sigs.count('BUY')
-            sell_c = sigs.count('SELL')
-            if   buy_c  > sell_c: combined_signal = 'STRONG BUY'  if buy_c  >= 3 else 'BUY'
-            elif sell_c > buy_c:  combined_signal = 'STRONG SELL' if sell_c >= 3 else 'SELL'
-            else:                 combined_signal = 'HOLD'
-
-            # 9. Save to DB
-            PredictionHistory.objects.create(
-                user=request.user, ticker=ticker,
-                price_at_prediction=round(current_price, 2),
-                predicted_prices=predicted_prices_r,
-                historical_prices=historical_prices_r,
-                expected_return=expected_return,
-                predicted_high=pred_high,
-                predicted_low=pred_low,
-                signal=signal,
-            )
-
-            in_watchlist = Watchlist.objects.filter(user=request.user, ticker=ticker).exists()
-
-            return Response({
-                'ticker':            ticker,
-                'current_price':     round(current_price, 2),
-                'predicted_prices':  predicted_prices_r,
-                'historical_prices': historical_prices_r,
-                'confidence_upper':  conf_upper_r,
-                'confidence_lower':  conf_lower_r,
-                'expected_return':   expected_return,
-                'predicted_high':    pred_high,
-                'predicted_low':     pred_low,
-                'signal':            signal,
-                'combined_signal':   combined_signal,
-                'in_watchlist':      in_watchlist,
-                'data_points_used':  len(feat_df),
-                'indicators':        indicators,
-                'sentiment':         sentiment,
-                'model_version':     'multi-feature-v2',
-            })
-
-        except Exception as e:
-            logger.exception(f"Prediction error for {ticker}: {e}")
-            return Response({'error': f'Prediction failed: {str(e)}'}, status=500)
+        return Response(response_data)
 
 
 # ── History ───────────────────────────────────────────────────────────────────
@@ -355,6 +221,25 @@ class PredictionHistoryView(generics.ListAPIView):
         qs = PredictionHistory.objects.filter(user=self.request.user)
         t  = self.request.query_params.get('ticker')
         return qs.filter(ticker=t.upper()) if t else qs
+
+
+class PredictionHistoryDetailView(generics.DestroyAPIView):
+    serializer_class   = PredictionHistorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return PredictionHistory.objects.filter(user=self.request.user)
+
+
+@api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
+def clear_prediction_history(request):
+    ticker = request.query_params.get('ticker')
+    qs = PredictionHistory.objects.filter(user=request.user)
+    if ticker:
+        qs = qs.filter(ticker=ticker.upper())
+    count, _ = qs.delete()
+    return Response({'message': f'Deleted {count} prediction records.'})
 
 
 class PredictionHistoryStatsView(APIView):

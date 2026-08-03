@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL || ''
 const tt  = { contentStyle:{ background:'#1a1d27', border:'1px solid #2a2d3e', borderRadius:'8px', color:'#fff' } }
 
 export default function BacktestPage() {
@@ -171,7 +171,14 @@ export default function BacktestPage() {
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'12px', marginBottom:'1.5rem' }}>
                         {statCard('Max Drawdown',  `-${data.max_drawdown}%`, '#E24B4A', 'worst peak-to-trough')}
                         {statCard('Sharpe Ratio',  data.sharpe_ratio, data.sharpe_ratio >= 1 ? '#1D9E75' : data.sharpe_ratio >= 0 ? '#EF9F27' : '#E24B4A', '≥1 is good')}
-                        {statCard('Best Trade',    data.best_trade  ? `+${data.best_trade.pnl_pct}%`  : '—', '#1D9E75')}
+                        {statCard('Best Trade',
+                            data.best_trade
+                                ? (data.best_trade.all_losses
+                                    ? `${data.best_trade.pnl_pct}%`
+                                    : `+${data.best_trade.pnl_pct}%`)
+                                : '—',
+                            data.best_trade?.all_losses ? '#E24B4A' : '#1D9E75',
+                            data.best_trade?.all_losses ? 'all trades lost' : '')}
                     </div>
 
                     {/* ── P&L Chart vs Buy & Hold ── */}

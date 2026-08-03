@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL || ''
 const SIGNAL_COLOR = { BUY: '#1D9E75', HOLD: '#EF9F27', SELL: '#E24B4A' }
 
 export default function HistoryPage() {
@@ -12,9 +12,10 @@ export default function HistoryPage() {
 
     const getHeaders = () => ({
         'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        'Content-Type': 'application/json',
     })
 
-    useEffect(() => {
+    const fetchHistory = () => {
         const url = filter
             ? `${API}/api/stocks/history/?ticker=${filter.toUpperCase()}`
             : `${API}/api/stocks/history/`
@@ -32,7 +33,42 @@ export default function HistoryPage() {
             setError('Failed to load history')
             setLoading(false)
         })
+    }
+
+    useEffect(() => {
+        fetchHistory()
     }, [filter])
+
+    const handleDeleteRecord = async (id) => {
+        if (!window.confirm('Delete this record?')) return
+        try {
+            const res = await fetch(`${API}/api/stocks/history/${id}/`, {
+                method: 'DELETE',
+                headers: getHeaders()
+            })
+            if (res.ok) fetchHistory()
+            else alert('Failed to delete')
+        } catch { alert('Network error') }
+    }
+
+    const handleClearHistory = async () => {
+        const msg = filter 
+            ? `Clear all history for ${filter.toUpperCase()}?` 
+            : 'Clear ALL prediction history? This cannot be undone.'
+        if (!window.confirm(msg)) return
+        
+        let url = `${API}/api/stocks/history/clear/`
+        if (filter) url += `?ticker=${filter.toUpperCase()}`
+        
+        try {
+            const res = await fetch(url, {
+                method: 'DELETE',
+                headers: getHeaders()
+            })
+            if (res.ok) fetchHistory()
+            else alert('Failed to clear history')
+        } catch { alert('Network error') }
+    }
 
     if (loading) return (
         <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'60vh', color:'#888', fontSize:'1.1rem' }}>
@@ -47,7 +83,17 @@ export default function HistoryPage() {
     return (
         <div style={{ padding:'2rem', maxWidth:'1200px', margin:'0 auto' }}>
 
-            <h2 style={{ color:'#fff', marginBottom:'1.5rem', fontSize:'1.5rem' }}>Prediction History</h2>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+                <h2 style={{ color:'#fff', fontSize:'1.5rem', margin:0 }}>Prediction History</h2>
+                {history.length > 0 && (
+                    <button 
+                        onClick={handleClearHistory}
+                        style={{ padding:'0.5rem 1rem', background:'transparent', border:'1px solid #e24b4a', color:'#e24b4a', borderRadius:'8px', cursor:'pointer', fontSize:'0.9rem', fontWeight:600 }}
+                    >
+                        {filter ? `Clear ${filter.toUpperCase()}` : 'Clear All'}
+                    </button>
+                )}
+            </div>
 
             {/* Stats strip */}
             {stats && (
@@ -91,7 +137,7 @@ export default function HistoryPage() {
             ) : (
                 <div style={{ background:'#1a1d27', border:'1px solid #2a2d3e', borderRadius:'12px', overflow:'hidden' }}>
                     {/* Table header */}
-                    <div style={{ display:'grid', gridTemplateColumns:'80px 100px 110px 120px 130px 80px 130px 80px', padding:'0.75rem 1rem', gap:'8px', background:'#0f1117', borderBottom:'1px solid #2a2d3e', fontSize:'11px', color:'#888', textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'80px 100px 110px 120px 130px 80px 130px 80px 40px', padding:'0.75rem 1rem', gap:'8px', background:'#0f1117', borderBottom:'1px solid #2a2d3e', fontSize:'11px', color:'#888', textTransform:'uppercase', letterSpacing:'0.5px' }}>
                         <span>Ticker</span>
                         <span>Date</span>
                         <span>Price then</span>
@@ -100,13 +146,14 @@ export default function HistoryPage() {
                         <span>Signal</span>
                         <span>Actual (7d)</span>
                         <span>Correct?</span>
+                        <span></span>
                     </div>
 
                     {/* Rows */}
                     {history.map((p, i) => (
                         <div
                             key={p.id}
-                            style={{ display:'grid', gridTemplateColumns:'80px 100px 110px 120px 130px 80px 130px 80px', padding:'0.75rem 1rem', gap:'8px', alignItems:'center', fontSize:'0.82rem', fontFamily:'Courier New, monospace', color:'#ccc', borderBottom: i < history.length - 1 ? '1px solid #1e2132' : 'none' }}
+                            style={{ display:'grid', gridTemplateColumns:'80px 100px 110px 120px 130px 80px 130px 80px 40px', padding:'0.75rem 1rem', gap:'8px', alignItems:'center', fontSize:'0.82rem', fontFamily:'Courier New, monospace', color:'#ccc', borderBottom: i < history.length - 1 ? '1px solid #1e2132' : 'none', position: 'relative' }}
                         >
                             <span style={{ color:'#4f8ef7', fontWeight:700, fontSize:'0.9rem' }}>{p.ticker}</span>
                             <span style={{ color:'#888', fontFamily:'Segoe UI, sans-serif', fontSize:'0.8rem' }}>
@@ -130,6 +177,13 @@ export default function HistoryPage() {
                                 {p.was_correct === false && <span style={{ color:'#E24B4A' }}>✗ No</span>}
                                 {p.was_correct === null  && <span style={{ color:'#555' }}>—</span>}
                             </span>
+                            <button
+                                onClick={() => handleDeleteRecord(p.id)}
+                                style={{ background:'transparent', border:'none', color:'#e24b4a', cursor:'pointer', fontSize:'1.1rem', padding:'0 5px' }}
+                                title="Delete record"
+                            >
+                                ×
+                            </button>
                         </div>
                     ))}
                 </div>
