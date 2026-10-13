@@ -10,7 +10,7 @@ import Watchlist from '../components/watchlist'
 import SentimentPanel from '../components/SentimentPanel'
 import LightweightChart from '../components/LightweightChart'
 
-const API = import.meta.env.VITE_API_URL || ''
+const API = import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api\/?$/, '') : '')
 
 const SIG = {
     'STRONG BUY':  { bg:'#0a2e1a', color:'#1D9E75', border:'#1D9E75' },

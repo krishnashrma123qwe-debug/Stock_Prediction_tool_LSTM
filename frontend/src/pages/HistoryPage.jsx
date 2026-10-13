@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API = import.meta.env.VITE_API_URL || ''
+const API = import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api\/?$/, '') : '')
 const SIGNAL_COLOR = { BUY: '#1D9E75', HOLD: '#EF9F27', SELL: '#E24B4A' }
 
 export default function HistoryPage() {

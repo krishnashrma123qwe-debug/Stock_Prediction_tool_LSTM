@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
 
-const API = import.meta.env.VITE_API_URL || ''
+const API = import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api\/?$/, '') : '')
 const tt  = { contentStyle:{ background:'#1a1d27', border:'1px solid #2a2d3e', borderRadius:'8px', color:'#fff' } }
 
 export default function BacktestPage() {
