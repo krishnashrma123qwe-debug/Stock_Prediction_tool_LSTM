@@ -1,8 +1,5 @@
 """
 Multi-Feature LSTM — Stock Prediction Portal
-=============================================
-Run this entire script in your PricePrediction.ipynb
-Replace all existing cells with these cells one by one.
 
 Features used (8 total):
   1. Close price

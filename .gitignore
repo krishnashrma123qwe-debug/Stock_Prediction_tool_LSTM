@@ -7,6 +7,9 @@ __pycache__/
 *.pkl
 *.keras
 *.h5
+!stock_prediction_portal/stocks/scaler.pkl
+!stock_prediction_portal/stocks/features.pkl
+!stock_prediction_portal/stocks/stock_lstm_model.keras
 
 # 🔹 Node / React
 node_modules/
