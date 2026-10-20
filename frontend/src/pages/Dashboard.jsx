@@ -65,7 +65,14 @@ export default function Dashboard() {
             const json = await res.json()
             if (!res.ok) { setError(json.error || 'Prediction failed'); setLoading(false); return }
             
-            // Start polling for the task result
+            // If result is already ready (synchronous / eager execution), render immediately!
+            if (json.status === 'SUCCESS' && json.result) {
+                setData(json.result)
+                setLoading(false)
+                return
+            }
+
+            // Otherwise poll for async task result
             pollStatus(json.task_id)
         } catch {
             setError('Network error — is Django running?')
@@ -74,7 +81,18 @@ export default function Dashboard() {
     }
 
     const pollStatus = async (taskId) => {
+        let attempts = 0
+        const maxAttempts = 25 // 25 * 2s = 50s timeout
+
         const interval = setInterval(async () => {
+            attempts++
+            if (attempts > maxAttempts) {
+                clearInterval(interval)
+                setError('Prediction timed out. Please try again.')
+                setLoading(false)
+                return
+            }
+
             try {
                 const res = await fetch(`${API}/api/stocks/task-status/${taskId}/`, {
                     headers: { Authorization: `Bearer ${token}` }
@@ -90,7 +108,6 @@ export default function Dashboard() {
                     setError(json.error || 'Prediction task failed.')
                     setLoading(false)
                 }
-                // If PENDING or STARTED, do nothing and wait for next interval
             } catch (err) {
                 clearInterval(interval)
                 setError('Error polling status.')

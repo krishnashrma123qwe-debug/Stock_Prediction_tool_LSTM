@@ -181,9 +181,21 @@ class PredictStockView(APIView):
         if not ticker.replace('.', '').isalpha() or len(ticker) > 20:
             return Response({'error': 'Invalid ticker symbol.'}, status=400)
 
-        # Trigger the asynchronous task
+        # Trigger the task
         task = predict_stock_task.delay(ticker, request.user.id)
         
+        # When running in eager mode (no Redis broker), task finishes synchronously!
+        if task.ready():
+            if isinstance(task.result, dict) and 'error' in task.result:
+                return Response(task.result, status=400)
+            from django.core.cache import cache
+            cache.set(f"task_result_{task.id}", task.result, 3600)
+            return Response({
+                'task_id': task.id,
+                'status': 'SUCCESS',
+                'result': task.result,
+            })
+
         return Response({
             'task_id': task.id,
             'status': 'PENDING',
@@ -195,6 +207,19 @@ class TaskStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, task_id):
+        # 1. Check cache fallback first (for environments without Redis broker)
+        from django.core.cache import cache
+        cached = cache.get(f"task_result_{task_id}")
+        if cached is not None:
+            if isinstance(cached, dict) and 'error' in cached:
+                return Response(cached, status=400)
+            return Response({
+                'task_id': task_id,
+                'status': 'SUCCESS',
+                'result': cached,
+            })
+
+        # 2. Check Celery AsyncResult
         result = AsyncResult(task_id)
         response_data = {
             'task_id': task_id,

@@ -163,20 +163,18 @@ def predict_stock_task(self, ticker, user_id):
         scaled   = scale_features(feat_df, scalers, features)
         sequence = scaled[-WINDOW:].reshape(1, WINDOW, len(features))
 
-        # Monte Carlo
-        predictions_scaled = []
-        for _ in range(20):
-            preds_run, current_seq = [], sequence.copy()
-            for _ in range(7):
-                pred = model(current_seq, training=True).numpy()
-                next_val = float(pred[0][0])
-                preds_run.append(next_val)
-                new_step = current_seq[0, -1, :].copy()
-                new_step[0] = next_val
-                current_seq = np.append(current_seq[:, 1:, :], new_step.reshape(1, 1, len(features)), axis=1)
-            predictions_scaled.append(preds_run)
+        # Vectorized Monte Carlo (20 concurrent stochastic runs in 1 batch)
+        batch_seq = np.repeat(sequence, 20, axis=0)  # (20, WINDOW, len(features))
+        all_day_preds = []
 
-        predictions_scaled = np.array(predictions_scaled)
+        for _ in range(7):
+            day_pred = model(batch_seq, training=True).numpy()  # (20, 1)
+            all_day_preds.append(day_pred[:, 0])
+            new_step = batch_seq[:, -1, :].copy()
+            new_step[:, 0] = day_pred[:, 0]
+            batch_seq = np.append(batch_seq[:, 1:, :], new_step[:, np.newaxis, :], axis=1)
+
+        predictions_scaled = np.array(all_day_preds).T  # (20, 7)
         close_scaler = scalers['Close']
         predicted_prices = close_scaler.inverse_transform(np.mean(predictions_scaled, axis=0).reshape(-1, 1)).flatten().tolist()
         confidence_upper = close_scaler.inverse_transform(np.percentile(predictions_scaled, 95, axis=0).reshape(-1, 1)).flatten().tolist()
